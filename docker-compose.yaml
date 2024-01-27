@@ -1,0 +1,15 @@
+version: '3'
+
+services:
+  media-crawler:
+    build: .
+    container_name: media-crawler
+    restart: always
+    environment:
+      TZ: Asia/Shanghai
+    volumes:
+      - ./:/app/MediaCrawler
+    ports:
+      - 8080:8080
+    expose:
+      - 8080
