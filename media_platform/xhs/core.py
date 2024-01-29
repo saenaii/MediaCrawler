@@ -69,13 +69,17 @@ class XiaoHongShuCrawler(AbstractCrawler):
             self.xhs_client = await self.create_xhs_client(httpx_proxy_format)
 
             redis_obj = redis.Redis(host=config.REDIS_DB_HOST, password=config.REDIS_DB_PWD)
+            cookie = str(redis_obj.get("cookie"))
+            if len(cookie) == 0:
+                utils.logger.error("empty cookie...")
+                exit()
             if not await self.xhs_client.pong():
                 login_obj = XHSLogin(
                     login_type=self.login_type,
                     login_phone="",  # input your phone number
                     browser_context=self.browser_context,
                     context_page=self.context_page,
-                    cookie_str=str(redis_obj.get("cookie"))
+                    cookie_str=cookie
                 )
                 await login_obj.begin()
                 await self.xhs_client.update_cookies(browser_context=self.browser_context)
@@ -126,7 +130,9 @@ class XiaoHongShuCrawler(AbstractCrawler):
         semaphore = asyncio.Semaphore(config.MAX_CONCURRENCY_NUM)
 
         tasks = task.listPendingTask()
-        print(tasks)
+        if len(tasks) == 0:
+            utils.logger.error("empty tasks...")
+            exit()
         task_list = [
             self.get_note_detail(note_id=note_id, semaphore=semaphore) for note_id in task.toList(tasks)
         ]
