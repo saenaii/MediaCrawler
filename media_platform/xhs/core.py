@@ -6,11 +6,12 @@ from typing import Dict, List, Optional, Tuple
 
 from playwright.async_api import (BrowserContext, BrowserType, Page,
                                   async_playwright)
-
+import redis
 import config
 from base.base_crawler import AbstractCrawler
 from proxy.proxy_ip_pool import IpInfoModel, create_ip_pool
 from store import xhs as xhs_store
+from task import task
 from tools import utils
 from var import crawler_type_var
 
@@ -66,13 +67,15 @@ class XiaoHongShuCrawler(AbstractCrawler):
 
             # Create a client to interact with the xiaohongshu website.
             self.xhs_client = await self.create_xhs_client(httpx_proxy_format)
+
+            redis_obj = redis.Redis(host=config.REDIS_DB_HOST, password=config.REDIS_DB_PWD)
             if not await self.xhs_client.pong():
                 login_obj = XHSLogin(
                     login_type=self.login_type,
                     login_phone="",  # input your phone number
                     browser_context=self.browser_context,
                     context_page=self.context_page,
-                    cookie_str=config.COOKIES
+                    cookie_str=str(redis_obj.get("cookie"))
                 )
                 await login_obj.begin()
                 await self.xhs_client.update_cookies(browser_context=self.browser_context)
@@ -121,14 +124,21 @@ class XiaoHongShuCrawler(AbstractCrawler):
     async def get_specified_notes(self):
         """Get the information and comments of the specified post"""
         semaphore = asyncio.Semaphore(config.MAX_CONCURRENCY_NUM)
+
+        tasks = task.listPendingTask()
+        print(tasks)
         task_list = [
-            self.get_note_detail(note_id=note_id, semaphore=semaphore) for note_id in config.XHS_SPECIFIED_ID_LIST
+            self.get_note_detail(note_id=note_id, semaphore=semaphore) for note_id in task.toList(tasks)
         ]
         note_details = await asyncio.gather(*task_list)
         for note_detail in note_details:
+            noteID = note_detail.get("note_id")
             if note_detail is not None:
-                await xhs_store.update_xhs_note(note_detail)
-        await self.batch_get_note_comments(config.XHS_SPECIFIED_ID_LIST)
+                task.updateTask(tasks[noteID], True, note_detail)
+            else:
+                task.updateTask(tasks[noteID], False, {})
+                # await xhs_store.update_xhs_note(note_detail)
+        # await self.batch_get_note_comments(config.XHS_SPECIFIED_ID_LIST)
 
     async def get_note_detail(self, note_id: str, semaphore: asyncio.Semaphore) -> Optional[Dict]:
         """Get note detail"""
